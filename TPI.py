@@ -2,14 +2,15 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import matplotlib.gridspec as gridspec
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 
 # ============================================================================
 # Modelo de planeación de capacidad para la plataforma CI + Vigilancia.
-# El objetivo es cuantificar cómo las cinco UPN definidas (Fuentes,
-# Documentos, Tecnologías verdes, Iniciativas de la competencia y Sesiones
-# concurrentes) evolucionan y cómo su crecimiento impacta en los recursos
-# técnicos (CPU, almacenamiento, memoria, red y GPU).
+# El objetivo es cuantificar cómo las tres UPN definidas (Fuentes,
+# Documentos, Tecnologías verdes) evolucionan y cómo su crecimiento
+# impacta en los recursos
+# técnicos (CPU, almacenamiento, memoria y red).
 # Cada bloque del script referencia explícitamente qué UPN participa en el
 # cálculo para mantener la trazabilidad con la tabla de consumos entregada.
 # ============================================================================
@@ -34,13 +35,10 @@ PALETTE = {
     "fuentes": AGUNSA_RED,
     "docs": ACCENT_GREEN,
     "tec": ACCENT_PURPLE,
-    "inits": ACCENT_GOLD,
-    "ses": ACCENT_BLUE,
     "cpu": "#ff7043",
     "storage": "#6d4c41",
     "network": "#26a69a",
     "ram": "#8e24aa",
-    "gpu": "#546e7a",
 }
 LOGO_PATH = "4619-AGUNSA_(2).jpg"
 FONT_FAMILY = "DejaVu Sans"
@@ -85,8 +83,6 @@ BASELINES = {
     "DOCS_MES": 18000,  # documentos por mes en dic-2025
     "DOCS_HIST": 50000, # registros previos acumulados
     "TEC": 100,       # tecnologías clasificadas
-    "INITS": 80,      # iniciativas competitivas
-    "SES": 40,        # sesiones concurrentes pico
 }
 
 def stepped_series(base_value, monthly_rate, step_increments=None):
@@ -111,7 +107,7 @@ fuentes = stepped_series(
 )
 
 # --------------------------------
-# UPN: Documento recolectado
+# UPN: Documento ASG
 # --------------------------------
 # Se modela como documentos/mes (input directo a cómputo/almacenamiento).
 # Comportamiento: fuerte crecimiento proporcional a las fuentes y un
@@ -129,43 +125,47 @@ docs_mes = np.clip(docs_mes, BASELINES["DOCS_MES"], None)
 docs_acumulados = BASELINES["DOCS_HIST"] + np.cumsum(docs_mes)
 
 # -----------------------------------
-# UPN: Tecnología verde registrada
+# UPN: Tecnología verde
 # -----------------------------------
 # Cada punto es una categoría tecnológica consolidada.
 # Comportamiento: crecimiento con pulsos cuando aparecen nuevas oleadas.
 # Impacto: nuevos nodos en ontología => RAM; reprocesos => CPU;
-# comparativas => GPU (modeling) y CPU (analytics).
+# comparativas => CPU (analytics).
 tec = stepped_series(
     BASELINES["TEC"],
     monthly_rate=0.01,
     step_increments=[(12, 15), (18, 20), (22, 15)],
 )
 
-# ---------------------------------------------
-# UPN: Iniciativa competencia monitoreada
-# ---------------------------------------------
-# Representa proyectos verdes de competidores.
-# Comportamiento: tendencia creciente casi lineal (sumamos paquetes).
-# Impacto: más datos históricos (almacenamiento), más dashboards
-# comparativos (GPU) y carga analítica (CPU).
-inits = stepped_series(
-    BASELINES["INITS"],
-    monthly_rate=0.02,
-    step_increments=[(6, 18), (14, 22), (20, 28)],
-)
+# =================================================
+# Impresión de UPNs y sus valores
+# =================================================
+print("\n" + "="*80)
+print("UPNs - Unidades de Planificación de Negocio")
+print("="*80)
 
-# --------------------------------
-# UPN: Sesión de usuario concurrente
-# --------------------------------
-# Representa el número máximo de usuarios simultáneos.
-# Comportamiento: tendencia creciente + estacionalidad (sinusoidal) para
-# reflejar picos diarios/mensuales.
-# Impacto: carga de CPU y RAM por sesión, credenciales y tráfico de red.
-ses_base = BASELINES["SES"] * (1 + 0.03) ** MONTH_INDEX
-seasonal = 1 + 0.18 * np.sin(2 * np.pi * MONTH_INDEX / 12) + 0.05 * np.sin(
-    4 * np.pi * MONTH_INDEX / 12
-)
-ses = np.clip(ses_base * seasonal, BASELINES["SES"] * 0.6, None)
+print("\n1. UPN: Fuentes de Información")
+print("-" * 80)
+for i, (mes, valor) in enumerate(zip(MONTHS, fuentes)):
+    print(f"  Mes {i+1:2d} ({mes.strftime('%Y-%m')}): {valor:8.2f} fuentes")
+
+print("\n2. UPN: Documentos ASG (por mes)")
+print("-" * 80)
+for i, (mes, valor) in enumerate(zip(MONTHS, docs_mes)):
+    print(f"  Mes {i+1:2d} ({mes.strftime('%Y-%m')}): {valor:8.2f} documentos/mes")
+
+print("\n3. UPN: Tecnologías Verdes")
+print("-" * 80)
+for i, (mes, valor) in enumerate(zip(MONTHS, tec)):
+    print(f"  Mes {i+1:2d} ({mes.strftime('%Y-%m')}): {valor:8.2f} tecnologías")
+
+print("\n" + "="*80)
+print("Resumen de UPNs:")
+print("-" * 80)
+print(f"Fuentes - Inicial: {fuentes[0]:.2f}, Final: {fuentes[-1]:.2f}, Promedio: {fuentes.mean():.2f}")
+print(f"Documentos/mes - Inicial: {docs_mes[0]:.2f}, Final: {docs_mes[-1]:.2f}, Promedio: {docs_mes.mean():.2f}")
+print(f"Tecnologías - Inicial: {tec[0]:.2f}, Final: {tec[-1]:.2f}, Promedio: {tec.mean():.2f}")
+print("="*80 + "\n")
 
 # =================================================
 # 3. Consumos de recursos (alineados al informe)
@@ -174,9 +174,8 @@ CPU_CAPACITY = 5200  # horas mensuales disponibles en cluster
 
 cpu_scraping = 0.9 * (fuentes / 100.0)
 cpu_indexing = 0.0015 * docs_mes
-cpu_analytics = 0.08 * (tec / 50.0) + 0.05 * (inits / 50.0)
-cpu_sessions = 0.12 * (ses / 50.0)
-cpu_components = cpu_scraping + cpu_indexing + cpu_analytics + cpu_sessions
+cpu_analytics = 0.08 * (tec / 50.0)
+cpu_components = cpu_scraping + cpu_indexing + cpu_analytics
 # Escalamos para que el uso vaya de ~10% a ~70%
 cpu_norm = (cpu_components - cpu_components.min()) / (
     cpu_components.max() - cpu_components.min()
@@ -187,29 +186,54 @@ cpu_total = cpu_saturation * CPU_CAPACITY
 # Almacenamiento (GB) – objetivo ~356 GB al 2027
 DOC_SIZE_GB = 0.00045  # ~0.45 MB promedio
 storage_docs = docs_acumulados * DOC_SIZE_GB
-storage_indexes = 0.0009 * tec + 0.0004 * inits
+storage_indexes = 0.0009 * tec
 storage_total = 5 + storage_docs + storage_indexes
 
 # Ancho de banda (GB/mes) – 10 -> 25 GB
 network_docs = docs_mes * DOC_SIZE_GB
 network_polling = 0.015 * (fuentes / 50.0)
-network_sessions = 0.02 * (ses / 40.0)
-network_total = network_docs + network_polling + network_sessions
+network_total = network_docs + network_polling
 
 # RAM pico (GB) – 16 -> ~30
 ram_norm = (docs_acumulados - docs_acumulados.min()) / (
     docs_acumulados.max() - docs_acumulados.min()
 )
-ram_peak = 16 + ram_norm * 10 + 0.05 * (ses / BASELINES["SES"])
+ram_peak = 16 + ram_norm * 10
 
-# GPU reservada para dashboards comparativos
-gpu_dashboards = 0.02 * (inits / 50.0)
-gpu_modeling = 0.015 * (tec / 50.0)
-gpu_total = gpu_dashboards + gpu_modeling
+# =================================================
+# Impresión de Recursos y sus valores
+# =================================================
+print("\n" + "="*80)
+print("CPU Total (horas/mes)")
+print("="*80)
+for i, (mes, valor) in enumerate(zip(MONTHS, cpu_total)):
+    print(f"  Mes {i+1:2d} ({mes.strftime('%Y-%m')}): {valor:8.2f} horas/mes")
+print(f"\nResumen - Inicial: {cpu_total[0]:.2f}, Final: {cpu_total[-1]:.2f}, Promedio: {cpu_total.mean():.2f}")
+print("="*80)
 
-# KPI de latencia/alertas ligados al uso de CPU
-latencia_seg = np.clip(1.7 + 3.2 * (cpu_saturation - 0.1) / 0.6, 1.5, 4.8)
-alerta_seg = np.clip(18 + 32 * (cpu_saturation - 0.1) / 0.6, 12, 55)
+print("\n" + "="*80)
+print("Almacenamiento Total (GB)")
+print("="*80)
+for i, (mes, valor) in enumerate(zip(MONTHS, storage_total)):
+    print(f"  Mes {i+1:2d} ({mes.strftime('%Y-%m')}): {valor:8.2f} GB")
+print(f"\nResumen - Inicial: {storage_total[0]:.2f}, Final: {storage_total[-1]:.2f}, Promedio: {storage_total.mean():.2f}")
+print("="*80)
+
+print("\n" + "="*80)
+print("Ancho de Banda Total (GB/mes)")
+print("="*80)
+for i, (mes, valor) in enumerate(zip(MONTHS, network_total)):
+    print(f"  Mes {i+1:2d} ({mes.strftime('%Y-%m')}): {valor:8.2f} GB/mes")
+print(f"\nResumen - Inicial: {network_total[0]:.2f}, Final: {network_total[-1]:.2f}, Promedio: {network_total.mean():.2f}")
+print("="*80)
+
+print("\n" + "="*80)
+print("RAM Pico (GB)")
+print("="*80)
+for i, (mes, valor) in enumerate(zip(MONTHS, ram_peak)):
+    print(f"  Mes {i+1:2d} ({mes.strftime('%Y-%m')}): {valor:8.2f} GB")
+print(f"\nResumen - Inicial: {ram_peak[0]:.2f}, Final: {ram_peak[-1]:.2f}, Promedio: {ram_peak.mean():.2f}")
+print("="*80 + "\n")
 
 # =================================================
 # 4. DataFrame mensual
@@ -221,15 +245,10 @@ monthly_df = pd.DataFrame(
         "Documentos_mes": docs_mes,
         "Docs_acumulados": docs_acumulados,
         "TecnologiaVerdeRegistrada": tec,
-        "IniciativaCompetenciaMonitoreada": inits,
-        "SesionUsuarioConcurrente": ses,
         "CPU_total_horas": cpu_total,
         "Storage_total_GB": storage_total,
         "Network_total_GB": network_total,
         "RAM_peak_GB": ram_peak,
-        "GPU_total_horas": gpu_total,
-        "Latencia_seg": latencia_seg,
-        "Alerta_seg": alerta_seg,
     }
 )
 monthly_df["Dias_mes"] = monthly_df["Mes"].dt.days_in_month
@@ -242,13 +261,10 @@ display_cols = [
     "FuenteInformacion",
     "Documentos_mes",
     "TecnologiaVerdeRegistrada",
-    "IniciativaCompetenciaMonitoreada",
-    "SesionUsuarioConcurrente",
     "CPU_total_horas",
     "Storage_total_GB",
     "Network_total_GB",
     "RAM_peak_GB",
-    "Latencia_seg",
 ]
 print(
     monthly_df.assign(Mes=monthly_df["Mes"].dt.strftime("%Y-%m"))[display_cols].round(2)
@@ -257,7 +273,7 @@ print(
 # =================================================
 # 5. Dashboard mensual
 # =================================================
-fig, axes = plt.subplots(2, 5, figsize=(19, 8.5))
+fig = plt.figure(figsize=(19, 8.5))
 fig.patch.set_facecolor("#fdfdfd")
 fig.suptitle(
     "Dashboard mensual - Plataforma CI + Vigilancia (AGUNSA Europa)",
@@ -265,7 +281,31 @@ fig.suptitle(
     color=ACCENT_GRAY,
     fontweight="bold",
 )
-fig.subplots_adjust(left=0.05, right=0.97, bottom=0.12, top=0.78, hspace=0.35, wspace=0.22)
+
+# Usar gridspec para centrar los 3 gráficos de arriba
+# Grid de 2 filas x 10 columnas: cada gráfico ocupa 2 columnas
+# Fila 1: espacio izquierdo (2 cols) + 3 gráficos (6 cols) + espacio derecho (2 cols)
+# Fila 2: espacio izquierdo (1 col) + 4 gráficos centrados (8 cols, 2 cols cada uno) + espacio derecho (1 col)
+gs = gridspec.GridSpec(2, 10, figure=fig, left=0.05, right=0.97, bottom=0.12, top=0.78, 
+                       hspace=0.35, wspace=0.22)
+
+# Crear los ejes: fila 1 tiene espacios a los lados, fila 2 tiene 4 gráficos centrados
+axes = []
+# Fila 1: espacio izquierdo (cols 0-1), 3 gráficos (cols 2-3, 4-5, 6-7), espacio derecho (cols 8-9)
+axes.append(fig.add_subplot(gs[0, 2:4]))  # Fuentes (ocupa cols 2-3)
+axes.append(fig.add_subplot(gs[0, 4:6]))  # Documentos (ocupa cols 4-5)
+axes.append(fig.add_subplot(gs[0, 6:8]))  # Tecnologías (ocupa cols 6-7)
+# Fila 2: 4 gráficos centrados (cada uno ocupa 2 columnas)
+axes.append(fig.add_subplot(gs[1, 1:3]))  # CPU (cols 1-2)
+axes.append(fig.add_subplot(gs[1, 3:5]))  # Almacenamiento (cols 3-4)
+axes.append(fig.add_subplot(gs[1, 5:7]))  # Ancho de banda (cols 5-6)
+axes.append(fig.add_subplot(gs[1, 7:9]))  # RAM (cols 7-8)
+
+# Ocultar los espacios vacíos de la fila 1 (un gráfico a cada lado)
+ax_left = fig.add_subplot(gs[0, 0:2])
+ax_left.axis('off')
+ax_right = fig.add_subplot(gs[0, 8:10])
+ax_right.axis('off')
 month_locator = mdates.MonthLocator(interval=3)
 month_formatter = mdates.DateFormatter("%Y-%m")
 YEAR1_IDX = min(12, len(MONTHS) - 1)
@@ -291,20 +331,18 @@ def format_with_auto_precision(val1, val2):
     # Si después de 3 decimales siguen iguales, devolvemos con 3
     return format_value(val1, 3), format_value(val2, 3)
 
+# Organizar gráficos: fila 1 tiene 3 UPN centradas, fila 2 tiene los 4 gráficos de recursos
 series_info = [
-    (fuentes, "Fuentes monitoreadas", "Cantidad", PALETTE["fuentes"]),
-    (docs_mes / 1000, "Documentos por mes (miles)", "Miles", PALETTE["docs"]),
-    (tec, "Tecnologias verdes", "Categorías", PALETTE["tec"]),
-    (inits, "Iniciativas competencia", "Iniciativas", PALETTE["inits"]),
-    (ses, "Sesiones concurrentes", "Sesiones", PALETTE["ses"]),
-    (cpu_total, "CPU total (h/mes)", "Horas", PALETTE["cpu"]),
-    (storage_total / 1000, "Almacenamiento (TB)", "TB", PALETTE["storage"]),
-    (network_total, "Ancho de banda (GB/mes)", "GB", PALETTE["network"]),
-    (ram_peak, "RAM pico (GB)", "GB", PALETTE["ram"]),
-    (gpu_total, "GPU analitica (h/mes)", "Horas", PALETTE["gpu"]),
+    (fuentes, "Fuentes monitoreadas", "Cantidad", PALETTE["fuentes"]),  # Fila 1, gráfico 0
+    (docs_mes / 1000, "Documentos por mes (miles)", "Miles", PALETTE["docs"]),  # Fila 1, gráfico 1
+    (tec, "Tecnologias verdes", "Categorías", PALETTE["tec"]),  # Fila 1, gráfico 2
+    (cpu_total, "CPU total (h/mes)", "Horas", PALETTE["cpu"]),  # Fila 2, gráfico 0
+    (storage_total / 1000, "Almacenamiento (TB)", "TB", PALETTE["storage"]),  # Fila 2, gráfico 1
+    (network_total, "Ancho de banda (GB/mes)", "GB", PALETTE["network"]),  # Fila 2, gráfico 2
+    (ram_peak, "RAM pico (GB)", "GB", PALETTE["ram"]),  # Fila 2, gráfico 3
 ]
 
-for ax, (series, title, ylabel, color) in zip(axes.flatten(), series_info):
+for ax, (series, title, ylabel, color) in zip(axes, series_info):
     ax.plot(MONTHS, series, color=color, linewidth=2.4, marker="o", markersize=4)
     ax.fill_between(MONTHS, series, color=color, alpha=0.12)
     ax.set_title(title, pad=20)
