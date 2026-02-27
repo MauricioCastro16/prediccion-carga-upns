@@ -1,7 +1,6 @@
 # prediccion-carga-upns
   
 ![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)  
-![License](https://img.shields.io/badge/License-MIT-green.svg)  
 ![Pandas](https://img.shields.io/badge/Pandas-2.x-black.svg)  
 ![Matplotlib](https://img.shields.io/badge/Matplotlib-3.x-orange.svg)  
   
