@@ -25,16 +25,16 @@ El script `TPI.py` define el horizonte temporal, modela cada UPN con `stepped_se
   
 ## Instalación y Uso  
 ```bash  
-# Clonar el repositorio  [header-1](#header-1)
+# Clonar el repositorio
 git clone https://github.com/MauricioCastro16/AdmSI-TecnicasPrediccionCarga.git  
 cd AdmSI-TecnicasPrediccionCarga  
   
-# Crear y activar entorno virtual  [header-2](#header-2)
+# Crear y activar entorno virtual
 python -m venv venv  
 source venv/bin/activate  # En Windows: venv\Scripts\activate  
   
-# Instalar dependencias  [header-3](#header-3)
+# Instalar dependencias
 pip install pandas matplotlib numpy  
   
-# Ejecutar el modelo principal  [header-4](#header-4)
+# Ejecutar el modelo principal
 python TPI.py
